@@ -4,6 +4,10 @@ A small Next.js app that browses and edits the markdown files in your
 Knowledge OS git repo. Git is the only data store — no database, no local
 cache of file contents. Every save is a real commit.
 
+This app has no login screen. Anyone with the deployed URL can view and edit
+the content repo, since the app holds a GitHub token with write access.
+Keep the URL unlisted, and don't link to it publicly.
+
 ## 1. Create the content repo
 
 Create a **new, separate** GitHub repo (e.g. `your-name/knowledge-os-content`)
@@ -45,18 +49,17 @@ git push -u origin main
    - `GITHUB_TOKEN` — the token from step 2
    - `GITHUB_REPO` — `<you>/knowledge-os-content`
    - `GITHUB_BRANCH` — `main` (optional, defaults to `main`)
-   - `APP_PASSWORD` — any password you choose, this is the only auth
 4. Deploy.
 
-Visit the deployed URL, enter `APP_PASSWORD`, and you'll see the file tree
-from `knowledge-os-content` on the left. Click a file to preview it, click
+Visit the deployed URL and you'll see the file tree from
+`knowledge-os-content` on the left. Click a file to preview it, click
 **Edit** to change it, **Save** to commit directly to the repo.
 
 ## Local development
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in the four variables above
+cp .env.example .env.local   # fill in the three variables above
 npm run dev
 ```
 
