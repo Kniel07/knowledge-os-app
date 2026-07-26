@@ -140,7 +140,7 @@ export default function Home() {
   async function loadTree() {
     setTreeError(null);
     try {
-      const res = await fetch("/api/tree");
+      const res = await fetch("/api/tree", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setEntries(data as TreeEntry[]);
@@ -184,7 +184,7 @@ export default function Home() {
     setActivePath(path);
     setStatus("Loading…");
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+      const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       setContent(data.content);
@@ -206,7 +206,9 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed");
-      const fresh = await fetch(`/api/file?path=${encodeURIComponent(activePath)}`).then((r) => r.json());
+      const fresh = await fetch(`/api/file?path=${encodeURIComponent(activePath)}`, { cache: "no-store" }).then((r) =>
+        r.json()
+      );
       setSha(fresh.sha);
       setStatus("Saved.");
     } catch (err) {
