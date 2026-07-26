@@ -41,15 +41,17 @@ function TreeView({
   nodes,
   activePath,
   onSelect,
+  depth = 0,
 }: {
   nodes: FileNode[];
   activePath: string | null;
   onSelect: (path: string) => void;
+  depth?: number;
 }) {
   return (
     <ul className="tree">
       {nodes.map((node) => (
-        <TreeNode key={node.path} node={node} activePath={activePath} onSelect={onSelect} />
+        <TreeNode key={node.path} node={node} activePath={activePath} onSelect={onSelect} depth={depth} />
       ))}
       <style jsx>{`
         .tree {
@@ -66,12 +68,16 @@ function TreeNode({
   node,
   activePath,
   onSelect,
+  depth,
 }: {
   node: FileNode;
   activePath: string | null;
   onSelect: (path: string) => void;
+  depth: number;
 }) {
-  const [open, setOpen] = useState(true);
+  // Top-level folders start collapsed to keep the first view scannable,
+  // except Projects (the one you actually live in day to day).
+  const [open, setOpen] = useState(depth > 0 || node.name === "Projects");
   const isDir = !!node.children;
 
   return (
@@ -85,7 +91,7 @@ function TreeNode({
       </div>
       {isDir && open && node.children && (
         <div className="nested">
-          <TreeView nodes={node.children} activePath={activePath} onSelect={onSelect} />
+          <TreeView nodes={node.children} activePath={activePath} onSelect={onSelect} depth={depth + 1} />
         </div>
       )}
       <style jsx>{`
@@ -128,54 +134,106 @@ export default function Home() {
   const [mode, setMode] = useState<"edit" | "preview">("preview");
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  async function loadTree() {
+    setTreeError(null);
+    try {
+      const res = await fetch("/api/tree");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setEntries(data as TreeEntry[]);
+    } catch (err) {
+      setTreeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    fetch("/api/tree")
-      .then((r) => r.json())
-      .then((data: TreeEntry[]) => {
-        setEntries(data);
-        setLoading(false);
-      });
+    loadTree();
   }, []);
 
   const tree = useMemo(() => buildTree(entries), [entries]);
 
+  async function newProject() {
+    const raw = window.prompt("Project name (lowercase, hyphens, e.g. my-new-project):");
+    if (!raw) return;
+    const name = raw.trim().toLowerCase().replace(/\s+/g, "-");
+    setCreating(true);
+    setStatus(`Creating Projects/${name}…`);
+    try {
+      const res = await fetch("/api/create-project", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create project");
+      await loadTree();
+      await openFile(`Projects/${name}/README.md`);
+      setStatus(`Created Projects/${name}.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function openFile(path: string) {
     setActivePath(path);
     setStatus("Loading…");
-    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
-    const data = await res.json();
-    setContent(data.content);
-    setSha(data.sha);
-    setMode("preview");
-    setStatus("");
+    try {
+      const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setContent(data.content);
+      setSha(data.sha);
+      setMode("preview");
+      setStatus("");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function save() {
     if (!activePath) return;
     setStatus("Saving…");
-    const res = await fetch("/api/file", {
-      method: "PUT",
-      body: JSON.stringify({ path: activePath, content, sha }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/file", {
+        method: "PUT",
+        body: JSON.stringify({ path: activePath, content, sha }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Save failed");
       const fresh = await fetch(`/api/file?path=${encodeURIComponent(activePath)}`).then((r) => r.json());
       setSha(fresh.sha);
       setStatus("Saved.");
-    } else {
-      setStatus("Save failed — someone else may have edited this file.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
     }
   }
 
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="brand">Knowledge OS</div>
-        {loading ? <p className="muted">Loading tree…</p> : <TreeView nodes={tree} activePath={activePath} onSelect={openFile} />}
+        <div className="sidebar-header">
+          <div className="brand">Knowledge OS</div>
+          <button className="new-project" onClick={newProject} disabled={creating}>
+            {creating ? "…" : "+ New Project"}
+          </button>
+        </div>
+        {loading ? (
+          <p className="muted">Loading tree…</p>
+        ) : treeError ? (
+          <p className="error">{treeError}</p>
+        ) : (
+          <TreeView nodes={tree} activePath={activePath} onSelect={openFile} />
+        )}
       </aside>
       <main className="editor">
         {!activePath ? (
-          <div className="empty">Select a file to view or edit.</div>
+          <div className="empty">{status || "Select a file to view or edit."}</div>
         ) : (
           <>
             <div className="toolbar">
@@ -223,18 +281,41 @@ export default function Home() {
           padding: 16px 8px;
           overflow-y: auto;
         }
+        .sidebar-header {
+          padding: 0 8px 12px;
+        }
         .brand {
           font-family: "IBM Plex Mono", monospace;
           color: #d97757;
           font-size: 13px;
           font-weight: 600;
           letter-spacing: 0.04em;
-          padding: 0 8px 14px;
+          padding-bottom: 10px;
+        }
+        .new-project {
+          width: 100%;
+          background: #1d2025;
+          color: #d97757;
+          border: 1px dashed #4a3a32;
+          border-radius: 6px;
+          padding: 7px 10px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .new-project:disabled {
+          opacity: 0.6;
+          cursor: default;
         }
         .muted {
           color: #6b6f76;
           font-size: 13px;
           padding: 0 8px;
+        }
+        .error {
+          color: #e0684f;
+          font-size: 12px;
+          padding: 0 8px;
+          white-space: pre-wrap;
         }
         .editor {
           flex: 1;
